@@ -30,18 +30,10 @@ parser.add_argument("-c", "--refchrmfasta", dest="ref_fasta_file",
 parser.add_argument("-b", "--bg_frac_file", dest="bgfrac_file",
                     help="file containing the background frequency of A/C/T/G, for each autosomal chromosome.")
 
-def get_bgfracs(bgfrac_file):
-    # pdb.set_trace()
-    bgfrac_df = read_csv(bgfrac_file,delimiter='\t')
-    for row,b in bgfrac_df.iterrows():
-        curr_tot = sum([b['count_A'],b['count_C'],b['count_G'],b['count_T']])
-        bgfrac_df.at[row,'total'] = curr_tot
-        bgfrac_df.at[row,'frac_A'] = int(b['count_A'])/curr_tot
-        bgfrac_df.at[row,'frac_C'] = int(b['count_C'])/curr_tot
-        bgfrac_df.at[row,'frac_G'] = int(b['count_G'])/curr_tot
-        bgfrac_df.at[row,'frac_T'] = int(b['count_T'])/curr_tot
-    return bgfrac_df
-
+#Reads in the JASPAR PWM file (transfac formatted)
+#   infile (str): the PWM file to read in
+#Returns:
+#   pfms_info (dict): dictionary containig the information about the PWM, from the file (plus an entry with the length of the PWM)
 def read_JASPAR_transfac_pfms(infile):
     pfms_file = open(infile,'r')
     pfms_info = {}
@@ -74,6 +66,12 @@ def read_JASPAR_transfac_pfms(infile):
     pfms_file.close()
     return pfms_info
 
+#Loops through the info_dicts list (of PWM matrix file info), and returns the PWM matrix dict for the given TF
+#Inputs:
+#   tfname (str): name of the transcription factor
+#   info_dicts (list): made by looping over all the JASPAR matrix files; this is a list of all of those matrices as dicts
+#Returns:
+#   matrix_dict_touse (dict): the dictionary containing the PWM for the given TF
 def get_matrix_byTF(tfname,info_dicts):
     matrix_dict_touse = None
     for i in info_dicts:
@@ -85,20 +83,11 @@ def get_matrix_byTF(tfname,info_dicts):
         return None
     return matrix_dict_touse
 
-def get_fraclnPWM_from_matrixdict(matrix_dict):
-    lnPWM_dict = {}
-    for en in range(1,matrix_dict['TF_len']+1):
-        temp_matrix = {}
-        curr_totcount = sum([float(x) for x in matrix_dict[en].values()])
-        for b in 'ACTG':
-            f = float(matrix_dict[en][b])/curr_totcount
-            if(f == 0.0):
-                temp_matrix[b] = np.log(1)
-            else:
-                temp_matrix[b] = np.log(f)
-        lnPWM_dict[en] = temp_matrix
-    return lnPWM_dict
-
+#Given a matrix dict for a TF, containing the PWM of the counts for each base in the sequence, returns just the PWM with each position entry being recalculated as a fraction of the count at that position
+#Inputs:
+#   matrix_dict (dict): the dictionary containing the PWM for a given TF, in addition to the other data about that TF
+#Returns:
+#   PWM_dict (dict): a dicitonary where each key is a position relative to the TF (1-indexed) and each value is a dictionary with keys A/C/G/T and values equal to the raw count divided by the total counts for all four bases at that position.
 def get_fracPWM_from_matrixdict(matrix_dict):
     PWM_dict = {}
     for en in range(1,matrix_dict['TF_len']+1):
@@ -112,6 +101,12 @@ def get_fracPWM_from_matrixdict(matrix_dict):
         PWM_dict[en] = temp_matrix
     return PWM_dict
 
+#Given a fractional PWM (made by get_fracPWM_from_matrixdict) and a set of background frequencies of the four bases, calculate a -log PWM
+#Inputs:
+#   fracPWM (dict): PWM where each entry is a fraction of the counts for each base
+#   bgfreqs (DataFrame): a dataframe with a single row, containing columns frac_A/frac_C/frac_G/frac_T which has the fraction of the chromosome/genome corrisponding to that base
+#Returns:
+#   lnPWM_dict (dict): PWM where each entry is the fracPWM entry, divided by the background base fraction, then taken the negative natural log of it
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
     lnPWM_dict = {}
     for en in range(1,len(fracPWM)+1):
@@ -126,20 +121,11 @@ def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
         lnPWM_dict[en] = temp_matrix
     return lnPWM_dict
 
-def get_hg19reference_sequence(pos_start,pos_end,filename):
-    ref_fasta_file = open(filename,'r')
-    seq = ''
-    for line in ref_fasta_file:
-        if(line[0] == '>'):
-            pass
-        else:
-            seq = ''.join([seq,line.split('\n')[0]])
-        if(len(seq) > pos_end):
-            break
-    ref_fasta_file.close()
-    return seq[pos_start:pos_end]
-
-
+#For a given sequence, returns the complementary sequence
+#Inputs:
+#   seq (str): sequence of A/C/T/G
+#Returns:
+#   new_seq (str): sequence of A/C/T/G complementary to the original sequence
 def get_complseq(seq):
     new_seq = []
     for b in seq:
@@ -155,43 +141,13 @@ def get_complseq(seq):
             print('Base pair not A/C/T/G! {0}'.format(b))
     return ''.join(new_seq)
 
-def compute_Y(seq,bg_props):
-    # pdb.set_trace()
-    bpcounts = {'A':0,'C':0,'G':0,'T':0}
-    for b in seq:
-        try:
-            bpcounts[b] += 1
-        except:
-            if(b not in 'ACTG'):
-                print('Sequence contains a letter, {0}, that is not A/C/G/T!'.format(b))
-    bpc_list = []
-    for o in 'ACGT':
-        bpc_list.append(bpcounts[o])
-    Y = np.dot(np.log(bg_props),bpc_list)
-    return Y
-
-# def get_frac_matrix_scores(tfname,pwm,ref_al,alt_al,position,reference_seq):
-#     ref_al = ref_al.upper()
-#     alt_al = alt_al.upper()
-#     reference_seq = reference_seq.upper()
-#     ref_seqval_list,alt_seqval_list = [],[]
-#     for n,b in enumerate(reference_seq):
-#         try:
-#             if(n == position):
-#                 ref_seqval_list.append(float(pwm[n+1][ref_al]))
-#                 alt_seqval_list.append(float(pwm[n+1][alt_al]))
-#             else:
-#                 ref_seqval_list.append(float(pwm[n+1][b]))
-#                 alt_seqval_list.append(float(pwm[n+1][b]))
-#         except:
-#             if(b not in 'ACTG'):
-#                 print('Sequence contains a letter, {0}, that is not A/C/G/T at position {1}'.format(b,n))
-#                 return None
-#             else:
-#                 continue
-
-    return ref_seqval_list,alt_seqval_list
-
+#Given a sequence, replaces the allele at a specified position with the given allele
+#Inputs:
+#   fullseq (str): sequence of A/C/T/G
+#   position (int): position of the allele to be replaced, relative to the length of the input sequence (so it must be <= len(fullseq))
+#   allele (str): A/C/T/G, to replace the one at the position in fullseq
+#Returns:
+#   new_seq (str): fullseq, with the new allele at the given position
 def make_seq(fullseq,position,allele):
     new_seq = ''
     for n,b in enumerate(fullseq):
@@ -208,6 +164,12 @@ def make_seq(fullseq,position,allele):
                 continue
     return new_seq.upper()
 
+#For a given PWM and sequence length, return the sum of the counts for all four bases at each position
+#Inputs:
+#   pwm (dict): position weight matrix, with or without the additional info from the matrix file
+#   seqlen (int): length of the sequence, so that we can loop over the PWM
+#Returns:
+#   pos_counts (list): list of counts at each position
 def get_matrix_counts(pwm,seqlen):
     pos_counts = []
     for n in range(1,seqlen+1):
@@ -215,6 +177,12 @@ def get_matrix_counts(pwm,seqlen):
         pos_counts.append(sum(temp))
     return pos_counts
 
+#For a given PWM and sequence, calculates the score at each position
+#Inputs:
+#   pwm (dict): position weight matrix, with or without the additional info from the matrix file
+#   seq (str): A/C/G/T sequence
+#Returns:
+#   seqval_list (list): list of the values at each position given the specific base in seq
 def get_matrix_scores(pwm,seq):
     seqval_list = []
     for n,b in enumerate(seq):
@@ -233,25 +201,28 @@ if __name__ == "__main__":
 
     position = int(args.position.split(':')[1])
     chromosome = int(args.position.split(':')[0])
-    # bgfrac_df = get_bgfracs(args.bgfrac_file)
     bgfrac_df = read_csv(args.bgfrac_file,delimiter='\t')
 
+    #Reading in the TF_genes file, made by the bash script, which has the TF names, positions, and strandedness
     gene_df = read_csv('{0}'.format(args.input_gene_file),header=None,delimiter='\t')
     gene_df.columns = ['pos_start','pos_end','tf_name','strand']
+
+    #Read in the matrix files and make dict entries for each one
     transfac_matrix_list = os.listdir(args.matrix_loc)
     infodicts_list = []
     for f in transfac_matrix_list:
         curr_infodict = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
         infodicts_list.append(curr_infodict)
 
+    #Getting the reference sequence that contains all of the TF genes within it, then add the new start/stop coordinates relative to full ref seq to the dataframe
     ref_pos_end = max(gene_df['pos_end'])
     ref_pos_start = min(gene_df['pos_start'])
-    # ref_full_seq = get_hg19reference_sequence(ref_pos_start,ref_pos_end,args.ref_fasta_file)
     ref_full_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(chromosome,ref_pos_start,ref_pos_end),args.ref_fasta_file)
     updated_pos = (position-ref_pos_start)
     gene_df['relative_start'] =  gene_df['pos_start']-ref_pos_start
     gene_df['relative_end'] = gene_df['pos_end']-ref_pos_start
 
+    #Creating the final dictionary containing the values for each TF, with the Ref/Alt alleles
     score_dict_bytf ={}
     for i,g in gene_df.iterrows():
         curr_relative_pos = abs(updated_pos-g['relative_start'])
@@ -268,8 +239,6 @@ if __name__ == "__main__":
 
         curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
         curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
-        # curr_refscore,curr_altscore,curr_counts = get_matrix_scores(tfname=g['tf_name'],matrix_dict=curr_matrix,ref_al=args.ref_al,alt_al=args.alt_al,position=curr_relative_pos,reference_seq=curr_seq)
-        # curr_totcount = sum(curr_counts)
         refscore_list = get_matrix_scores(curr_matrix,curr_refseq)
         altscore_list = get_matrix_scores(curr_matrix,curr_altseq)
         pos_counts = get_matrix_counts(curr_matrix,curr_matrix['TF_len'])
@@ -282,39 +251,12 @@ if __name__ == "__main__":
         altscore_ln = get_matrix_scores(curr_lnfracPWM,curr_altseq)
         curr_scoredict['H'] = np.sum(refscore_ln)
         curr_scoredict['Hprime'] = np.sum(altscore_ln)
-        # curr_scoredict['ref_fraction_ln_score'] = sum(refscore_ln)
-        # curr_scoredict['alt_fraction_ln_score'] = sum(altscore_ln)
-        
-        # ref_Y = compute_Y(curr_refseq,bgfreqs)
-        # alt_Y = compute_Y(curr_altseq,bgfreqs)
-        # ref_H = refscore_ln - ref_Y
-        # alt_H = altscore_ln - alt_Y
-        # curr_scoredict['H'] = np.sum(ref_H)
-        # curr_scoredict['Hprime'] = np.sum(alt_H)
 
         score_dict_bytf[g['tf_name']] = curr_scoredict
 
-    # score_dict_bytf ={}
-    # for i,g in gene_df.iterrows():
-    #     curr_relative_pos = abs(updated_pos-g['relative_start'])
-    #     curr_seq = ref_full_seq[g['relative_start']:(g['relative_end']+1)]
-    #     curr_matrix = get_matrix_byTF(g['tf_name'],infodicts_list)
-    #     curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
-    #     curr_lnfracPWM = get_fraclnPWM_from_matrixdict(curr_matrix)
-    #     curr_refscore,curr_altscore,curr_counts = get_matrix_scores(tfname=g['tf_name'],matrix_dict=curr_matrix,ref_al=args.ref_al,alt_al=args.alt_al,position=curr_relative_pos,reference_seq=curr_seq)
-    #     curr_totcount = sum(curr_counts)
-    #     curr_scoredict = {'ref_score':curr_refscore,'alt_score':curr_altscore,'ref_fraction_score':(curr_refscore/curr_totcount),'alt_fraction_score':(curr_altscore/curr_totcount),'tf_len':len(curr_seq),'counts_perpos':curr_counts[0]}
-    #     frac_refvals,frac_altvals = get_frac_matrix_scores(tfname=g['tf_name'],pwm=curr_fracPWM,ref_al=args.ref_al,alt_al=args.alt_al,position=curr_relative_pos,reference_seq=curr_seq)
-    #     fracln_refvals,fracln_altvals = get_frac_matrix_scores(tfname=g['tf_name'],pwm=curr_lnfracPWM,ref_al=args.ref_al,alt_al=args.alt_al,position=curr_relative_pos,reference_seq=curr_seq)
-    #     ref_Y = compute_Y(curr_seq,)
-    #     score_dict_bytf[g['tf_name']] = curr_scoredict
-
-
+    #Writing the PWM scores to the output file
     outfile = open(args.outname,'w')
     outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tHprime (ALT)\n'.format(position,chromosome))
-
-    # outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tREF Log(PWM Fraction Score)\tALT Log(PWM Fraction Score)\tH (REF)\tHprime (ALT)\n'.format(position,chromosome))
-    # for tf,scores in score_dict_bytf.items():
     for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['alt_fraction_score'],reverse=True):
         outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\n'.format(tf,scores['ref_fraction_score'],scores['alt_fraction_score'],scores['tf_len'],
             scores['counts_perpos'],scores['H'],scores['Hprime']))
