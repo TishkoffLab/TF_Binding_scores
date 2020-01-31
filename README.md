@@ -11,7 +11,7 @@ TF_Name, PWM Fraction Score (REF allele), PWM Fraction Score (ALT allele), TF Le
 
 ```
 
-###get_PWMscore.py
+### get_PWMscore.py
 
 This script takes a particular SNP of interest, the list of TF names that corrisponds to that SNP, and calculates the scores from the PWMs of each TF.
 Input flags:
