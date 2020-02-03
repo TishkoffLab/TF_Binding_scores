@@ -9,6 +9,7 @@ import os
 from argparse import ArgumentParser
 import pybedtools
 import pdb
+import math
 
 parser = ArgumentParser()
 # parser.add_argument("-i", "--input_genes", dest="input_gene_file",
@@ -138,45 +139,24 @@ def calculate_bgH(seq,ln_pwm,bgfreqs):
     H = currscore_ln - Y
     return np.sum(H)
 
-def compute_Y(seq,bg_props):
-    # pdb.set_trace()
-    bpcounts = {'A':0,'C':0,'G':0,'T':0}
-    for b in seq:
-        try:
-            bpcounts[b] += 1
-        except:
-            if(b not in 'ACTG'):
-                print('Sequence contains a letter, {0}, that is not A/C/G/T!'.format(b))
-    bpc_list = []
-    for o in 'ACGT':
-        bpc_list.append(bpcounts[o])
-    Y = np.dot(np.log(bg_props),bpc_list)
-    return Y
 
 def get_random_bgseqs(slen,reps,fastaloc,chrmsizes):
     # x = pybedtools.BedTool()
 	chrms_touse = list(chrmsizes['chrom'])
 	bgseq_list = []
-	nreps = 0
-	# while(len(bgseq_list) < reps):
-	for n in range(int(reps)):
-		# nreps += 1
-		try:
-			curr_chrm = random.randint(1,22)
-			curr_start = random.randint(1,chrmsizes.loc[chrmsizes['chrom'] == 'chr{0}'.format(curr_chrm)]['size'].values[0])
-			curr_end = curr_start + slen
-            # curr_chrm = int(s[0].split('r')[1])
-            # curr_start = int(s[1])
-            # curr_end = int(s[2])
-			chrmfile = '{0}/{1}.fa'.format(fastaloc,curr_chrm)
-			curr_seq = pybedtools.BedTool.seq('{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile)
-			bgseq_list.append({'chrm':curr_chrm.split('r')[1],'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
-		except:
-			continue
-		# if(nreps == (reps*2)):
-		# 	print('Some error getting bg seqs! Check to see what problem is before rerunning.')
-		# 	break
-        
+	while(len(bgseq_list) < int(reps)):
+		is_valid_seq = True
+		curr_chrm = random.randint(1,22)
+		curr_start = random.randint(1,chrmsizes.loc[chrmsizes['chrom'] == 'chr{0}'.format(curr_chrm)]['size'].values[0])
+		curr_end = curr_start + slen
+		chrmfile = '{0}/chr{1}.fa'.format(fastaloc,curr_chrm)
+		curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile)
+		for b in curr_seq:
+			if(b not in 'ACTG'):
+				is_valid_seq = False
+				continue
+		if(is_valid_seq):
+			bgseq_list.append({'chrm':curr_chrm,'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
 	return bgseq_list
 
 if __name__ == "__main__":
@@ -191,14 +171,16 @@ if __name__ == "__main__":
         bg_H_list = []
         for s in bgseqs:
             curr_seq = s['seq']
-            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == s['chrm']][['frac_A','frac_C','frac_G','frac_T']]
+            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s['chrm'])][['frac_A','frac_C','frac_G','frac_T']]
             curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             curr_H = np.sum(get_matrix_scores(curr_lnfracPWM,curr_seq))
             bg_H_list.append(curr_H)
-        bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
+        curr_z = [pow(math.e,-x) for x in bg_H_list]
+        bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
+        # bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
     outfile = open(args.outname,'w')
-    outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG H score\n'.format(args.reps))
+    outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
     for tf,h in bg_H_by_TF.items():
         outfile.write('{0}\t{1}\n'.format(tf,h))
     outfile.close()
