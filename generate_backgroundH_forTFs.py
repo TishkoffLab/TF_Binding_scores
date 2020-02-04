@@ -164,6 +164,8 @@ if __name__ == "__main__":
     bgfrac_df = read_csv(args.bgfrac_file,delimiter='\t')
     chrmsizes_df = read_csv(args.genome_size_file,delimiter='\t')
     transfac_matrix_list = os.listdir(args.matrix_loc)
+    outfile = open(args.outname,'w')
+    outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
     bg_H_by_TF = {}
     for f in transfac_matrix_list:
         curr_matrix = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
@@ -177,12 +179,13 @@ if __name__ == "__main__":
             curr_H = np.sum(get_matrix_scores(curr_lnfracPWM,curr_seq))
             bg_H_list.append(curr_H)
         curr_z = [pow(math.e,-x) for x in bg_H_list]
-        bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
+        # bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
+        outfile.write('{0}\t{1}\n'.format(curr_matrix['Matrix_Name'],sum(curr_z)))
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
-    outfile = open(args.outname,'w')
-    outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
-    for tf,h in bg_H_by_TF.items():
-        outfile.write('{0}\t{1}\n'.format(tf,h))
+    
+    
+    # for tf,h in bg_H_by_TF.items():
+        
     outfile.close()
 
 
