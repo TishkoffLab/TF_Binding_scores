@@ -11,9 +11,10 @@ TF_Name, PWM Fraction Score (REF allele), PWM Fraction Score (ALT allele), TF Le
 
 ```
 
-### get_PWMscore.py
+get_PWMscore.py
 
 This script takes a particular SNP of interest, the list of TF names that corrisponds to that SNP, and calculates the scores from the PWMs of each TF.
+
 Input flags:
 -i --input_genes
 				input file containing the list of TF gene names, one per row
@@ -35,5 +36,16 @@ Input flags:
 Note: bg_frac_file was made using a seperate script, with frequencies calculated from reference genome hg_19 and is in this repository as "ACTG_count.all_chrms.fractions.v2.txt".
 
 ```
+get_PWMscore_genenames_multisnpfile.sh
+
+This script runs the python script on each of the SNPs that we have found through GWAS. It finds the TFs from the premade JASPAR bedfile that overlap with each particular SNP and makes a file containing that info, and then runs get_PWMscore.py with the requisite input flags.
+
+Input flags:
+-o outname
+			Name to use for the output files (<outname>.TF_genes and <outname>.PWM_scores)
+
+-s snp_file
+			File containing the SNPs that will be analyzed. First line is the column names, followed by one line per SNP. Each line must have the SNP name (chr:pos format), the reference allele, and the alternative allele
+
 
 ```
