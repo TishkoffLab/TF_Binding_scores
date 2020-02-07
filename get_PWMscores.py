@@ -8,12 +8,12 @@ from scipy.stats import norm
 import os
 from argparse import ArgumentParser
 import pybedtools
-import pdb
+# import pdb
 
 parser = ArgumentParser()
 parser.add_argument("-i", "--input_genes", dest="input_gene_file",
 					help="input file containing the list of TF gene names, one per row")
-parser.add_argument("-s", "--sequence", dest="sequence",
+parser.add_argument("-s", "--sequence", dest="args.sequence",
 					help="sequence to compute score for, A/C/T/G")
 parser.add_argument("-m", "--matrix_loc", dest="matrix_loc",
 					help="full path of the folder that contains the PWM matrix files")
@@ -108,16 +108,13 @@ def get_fracPWM_from_matrixdict(matrix_dict):
 #Returns:
 #   lnPWM_dict (dict): PWM where each entry is the fracPWM entry, divided by the background base fraction, then taken the negative natural log of it
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
+    # pdb.set_trace()
     lnPWM_dict = {}
     for en in range(1,len(fracPWM)+1):
         temp_matrix = {}
         for b in 'ACTG':
             f = float(fracPWM[en][b])/bgfreqs['frac_{0}'.format(b)].values[0]
-            if(f == 0.0):
-                print('fraction is 0')
-                temp_matrix[b] = np.log(1)
-            else:
-                temp_matrix[b] = -np.log(f)
+            temp_matrix[b] = -np.log(f)
         lnPWM_dict[en] = temp_matrix
     return lnPWM_dict
 
@@ -233,10 +230,10 @@ if __name__ == "__main__":
             curr_altseq = get_complseq(curr_altseq)
         curr_matrix = get_matrix_byTF(g['tf_name'],infodicts_list)
         try:
-            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == chromosome][['frac_A','frac_C','frac_G','frac_T']]
+            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(chromosome)][['frac_A','frac_C','frac_G','frac_T']]
         except:
             bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
-
+        # pdb.set_trace()
         curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
         curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
         refscore_list = get_matrix_scores(curr_matrix,curr_refseq)
