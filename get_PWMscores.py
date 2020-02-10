@@ -8,7 +8,8 @@ from scipy.stats import norm
 import os
 from argparse import ArgumentParser
 import pybedtools
-# import pdb
+import pdb
+import math
 
 parser = ArgumentParser()
 parser.add_argument("-i", "--input_genes", dest="input_gene_file",
@@ -31,6 +32,8 @@ parser.add_argument("-c", "--refchrmfasta", dest="ref_fasta_file",
 					help="reference fasta file (should just be a single chromosome) to use for getting the reference sequence")
 parser.add_argument("-b", "--bg_frac_file", dest="bgfrac_file",
                     help="file containing the background frequency of A/C/T/G, for each autosomal chromosome.")
+parser.add_argument("-z", "--bg_zscore_file", dest="bgZscore_file",
+                    help="file containing the background Z scores for each TF, precalculated using a significant number of replicates")
 
 #Reads in the JASPAR PWM file (transfac formatted)
 #   infile (str): the PWM file to read in
@@ -195,6 +198,17 @@ def get_matrix_scores(pwm,seq):
                 continue
     return seqval_list
 
+def calculate_bindingP(hscore,bg_z_df,tf_name):
+    # pdb.set_trace()
+    try:
+        bgZ_touse = bg_z_df.loc[bg_z_df['TF_name'] == tf_name]['BG Z score'].values[0]
+        
+    except:
+        print('Could not find background Z score for TF {0}'.format(tf_name))
+        return -1
+    return math.exp(-hscore)/bgZ_touse
+    
+
 if __name__ == "__main__":
     args = parser.parse_args()
     bgfrac_df = read_csv(args.bgfrac_file,delimiter='\t')
@@ -218,6 +232,7 @@ if __name__ == "__main__":
             tf_list_file.close()
         except FileNotFoundError:
             tfs_to_check.append(args.tf_tocheck)
+        bg_z_df = read_csv(args.bgZscore_file,delimiter='\t',skiprows=1)
 
         bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
         for tf in tfs_to_check:
@@ -232,12 +247,13 @@ if __name__ == "__main__":
             curr_scoredict['fraction_score'] = sum([rawscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
             score_ln = get_matrix_scores(curr_lnfracPWM,sequence)
             curr_scoredict['H'] = np.sum(score_ln)
+            curr_scoredict['bindingP'] = calculate_bindingP(curr_scoredict['H'],bg_z_df,tf)
             score_dict_bytf[tf] = curr_scoredict
         #Writing the PWM scores to the output file
         outfile = open(args.outname,'w')
-        outfile.write('Scores for Given Transcription Factors for sequence {0}, as a fraction of the total count \nTF_Name\tPWM Fraction Score\tTF Length\tTF Counts per position\tH\n'.format(sequence))
+        outfile.write('Scores for Given Transcription Factors for sequence {0}, as a fraction of the total count \nTF_Name\tPWM Fraction Score\tTF Length\tTF Counts per position\tH\tP binding\n'.format(sequence))
         for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['H'],reverse=True):
-            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(tf,scores['fraction_score'],scores['tf_len'],scores['counts_perpos'],scores['H']))
+            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(tf,scores['fraction_score'],scores['tf_len'],scores['counts_perpos'],scores['H'],scores['bindingP']))
         outfile.close()
     else:
         position = int(args.position.split(':')[1])
@@ -262,6 +278,8 @@ if __name__ == "__main__":
         gene_df['relative_start'] =  gene_df['pos_start']-ref_pos_start
         gene_df['relative_end'] = gene_df['pos_end']-ref_pos_start
 
+        bg_z_df = read_csv(args.bgZscore_file,delimiter='\t',skiprows=1)
+        # pdb.set_trace()
         #Creating the final dictionary containing the values for each TF, with the Ref/Alt alleles
         score_dict_bytf ={}
         for i,g in gene_df.iterrows():
@@ -292,14 +310,17 @@ if __name__ == "__main__":
             curr_scoredict['H'] = np.sum(refscore_ln)
             curr_scoredict['Hprime'] = np.sum(altscore_ln)
 
+            curr_scoredict['ref_bindingP'] = calculate_bindingP(curr_scoredict['H'],bg_z_df,g['tf_name'])
+            curr_scoredict['alt_bindingP'] = calculate_bindingP(curr_scoredict['Hprime'],bg_z_df,g['tf_name'])
+
             score_dict_bytf[g['tf_name']] = curr_scoredict
 
         #Writing the PWM scores to the output file
         outfile = open(args.outname,'w')
-        outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tHprime (ALT)\n'.format(position,chromosome))
+        outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tHprime (ALT)\tP binding (REF)\tP binding (ALT)\n'.format(position,chromosome))
         for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['alt_fraction_score'],reverse=True):
             outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\n'.format(tf,scores['ref_fraction_score'],scores['alt_fraction_score'],scores['tf_len'],
-                scores['counts_perpos'],scores['H'],scores['Hprime']))
+                scores['counts_perpos'],scores['H'],scores['Hprime'],scores['ref_bindingP'],scores['alt_bindingP']))
         outfile.close()
     
 
