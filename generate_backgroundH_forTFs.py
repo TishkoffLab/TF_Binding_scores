@@ -68,7 +68,10 @@ def get_matrix_byTF(tfname,info_dicts):
     if(matrix_dict_touse == None):
         print('Could not find a PWM for Transcription Factor {0}'.format(tfname))
         return None
-    return matrix_dict_touse
+    matrix_aslist = []
+    for i in range(1,matrix_dict_touse['TF_len']+1):
+        matrix_aslist.append(matrix_dict_touse[i])
+    return matrix_aslist
 
 
 def get_fraclnPWM_from_matrixdict(matrix_dict):
@@ -86,36 +89,32 @@ def get_fraclnPWM_from_matrixdict(matrix_dict):
     return lnPWM_dict
 
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
-    lnPWM_dict = {}
-    for en in range(1,len(fracPWM)+1):
+    lnPWM = []
+    for en in fracPWM:
         temp_matrix = {}
         for b in 'ACTG':
-            f = float(fracPWM[en][b])/bgfreqs['frac_{0}'.format(b)].values[0]
-            if(f == 0.0):
-                print('fraction is 0')
-                temp_matrix[b] = np.log(1)
-            else:
-                temp_matrix[b] = -np.log(f)
-        lnPWM_dict[en] = temp_matrix
-    return lnPWM_dict
+            f = float(en[b])/bgfreqs['frac_{0}'.format(b)].values[0]
+            temp_matrix[b] = -np.log(f)
+        lnPWM.append(temp_matrix)
+    return lnPWM
 
-def get_fracPWM_from_matrixdict(matrix_dict):
-    PWM_dict = {}
-    for en in range(1,matrix_dict['TF_len']+1):
+def get_fracPWM_from_matrix(pwm):
+    fracPWM = []
+    for en in pwm:
         temp_matrix = {}
-        curr_totcount = sum([float(x) for x in matrix_dict[en].values()])
+        curr_totcount = sum([float(x) for x in en.values()])
         for b in 'ACTG':
             if(f == 0.0):
                 temp_matrix[b] = 1/curr_totcount
             else:
-                temp_matrix[b] = float(matrix_dict[en][b])/curr_totcount
-        PWM_dict[en] = temp_matrix
-    return PWM_dict
+                temp_matrix[b] = float(en[b])/curr_totcount
+        fracPWM.append(temp_matrix)
+    return fracPWM
 
-def get_matrix_counts(pwm,seqlen):
+def get_matrix_counts(pwm):
     pos_counts = []
-    for n in range(1,seqlen+1):
-        temp = [float(x) for x in pwm[n].values()]
+    for en in pwm:
+        temp = [float(x) for x in en.values()]
         pos_counts.append(sum(temp))
     return pos_counts
 
@@ -123,7 +122,7 @@ def get_matrix_scores(pwm,seq):
     seqval_list = []
     for n,b in enumerate(seq):
         try:
-            seqval_list.append(float(pwm[n+1][b]))
+            seqval_list.append(float(pwm[n][b]))
         except:
             if(b not in 'ACTG'):
                 print('Sequence contains a letter, {0}, that is not A/C/G/T at position {1}'.format(b,n))
@@ -156,7 +155,8 @@ def get_random_bgseqs(slen,reps,fastaloc,chrmsizes):
 				is_valid_seq = False
 				continue
 		if(is_valid_seq):
-			bgseq_list.append({'chrm':curr_chrm,'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
+			bgseq_list.append([curr_chrm,curr_start,curr_end,curr_seq.upper()])
+			# bgseq_list.append({'chrm':curr_chrm,'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
 	return bgseq_list
 
 if __name__ == "__main__":
@@ -164,28 +164,30 @@ if __name__ == "__main__":
     bgfrac_df = read_csv(args.bgfrac_file,delimiter='\t')
     chrmsizes_df = read_csv(args.genome_size_file,delimiter='\t')
     transfac_matrix_list = os.listdir(args.matrix_loc)
+
     outfile = open(args.outname,'w')
     outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
     bg_H_by_TF = {}
     for f in transfac_matrix_list:
         curr_matrix = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
         bgseqs = get_random_bgseqs(curr_matrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df)
+        outfile_currTF = open('bgseqs_info/{0}.{1}.random_bgseq.info'.format(args.outname,curr_matrix['Matrix_Name']),'w')
+        outfile_currTF.write('Chrm\tStart\tEnd\n')
         bg_H_list = []
         for s in bgseqs:
-            curr_seq = s['seq']
-            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s['chrm'])][['frac_A','frac_C','frac_G','frac_T']]
+            curr_seq = s[3]
+            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s[0])][['frac_A','frac_C','frac_G','frac_T']]
             curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             curr_H = np.sum(get_matrix_scores(curr_lnfracPWM,curr_seq))
             bg_H_list.append(curr_H)
+            outfile_currTF.write('{0}\t{1}\t{2}\n'.format(s[0],s[1],s[2]))
         curr_z = [pow(math.e,-x) for x in bg_H_list]
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
         outfile.write('{0}\t{1}\n'.format(curr_matrix['Matrix_Name'],sum(curr_z)))
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
+    	outfile_currTF.close()
     
-    
-    # for tf,h in bg_H_by_TF.items():
-        
     outfile.close()
 
 

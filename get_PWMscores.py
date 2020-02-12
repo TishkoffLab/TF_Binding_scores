@@ -86,42 +86,44 @@ def get_matrix_byTF(tfname,info_dicts):
     if(matrix_dict_touse == None):
         print('Could not find a PWM for Transcription Factor {0}'.format(tfname))
         return None
-    return matrix_dict_touse
+    matrix_aslist = []
+    for i in range(1,matrix_dict_touse['TF_len']+1):
+        matrix_aslist.append(matrix_dict_touse[i])
+    return matrix_aslist
 
 #Given a matrix dict for a TF, containing the PWM of the counts for each base in the sequence, returns just the PWM with each position entry being recalculated as a fraction of the count at that position
 #Inputs:
 #   matrix_dict (dict): the dictionary containing the PWM for a given TF, in addition to the other data about that TF
 #Returns:
 #   PWM_dict (dict): a dicitonary where each key is a position relative to the TF (1-indexed) and each value is a dictionary with keys A/C/G/T and values equal to the raw count divided by the total counts for all four bases at that position.
-def get_fracPWM_from_matrixdict(matrix_dict):
-    PWM_dict = {}
-    for en in range(1,matrix_dict['TF_len']+1):
+def get_fracPWM_from_matrix(pwm):
+    fracPWM = []
+    for en in pwm:
         temp_matrix = {}
-        curr_totcount = sum([float(x) for x in matrix_dict[en].values()])
+        curr_totcount = sum([float(x) for x in en.values()])
         for b in 'ACTG':
             if(f == 0.0):
                 temp_matrix[b] = 1/curr_totcount
             else:
-                temp_matrix[b] = float(matrix_dict[en][b])/curr_totcount
-        PWM_dict[en] = temp_matrix
-    return PWM_dict
+                temp_matrix[b] = float(en[b])/curr_totcount
+        fracPWM.append(temp_matrix)
+    return fracPWM
 
-#Given a fractional PWM (made by get_fracPWM_from_matrixdict) and a set of background frequencies of the four bases, calculate a -log PWM
+#Given a fractional PWM (made by get_fracPWM_from_matrix) and a set of background frequencies of the four bases, calculate a -log PWM
 #Inputs:
 #   fracPWM (dict): PWM where each entry is a fraction of the counts for each base
 #   bgfreqs (DataFrame): a dataframe with a single row, containing columns frac_A/frac_C/frac_G/frac_T which has the fraction of the chromosome/genome corrisponding to that base
 #Returns:
 #   lnPWM_dict (dict): PWM where each entry is the fracPWM entry, divided by the background base fraction, then taken the negative natural log of it
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
-    # pdb.set_trace()
-    lnPWM_dict = {}
-    for en in range(1,len(fracPWM)+1):
+    lnPWM = []
+    for en in fracPWM:
         temp_matrix = {}
         for b in 'ACTG':
-            f = float(fracPWM[en][b])/bgfreqs['frac_{0}'.format(b)].values[0]
+            f = float(en[b])/bgfreqs['frac_{0}'.format(b)].values[0]
             temp_matrix[b] = -np.log(f)
-        lnPWM_dict[en] = temp_matrix
-    return lnPWM_dict
+        lnPWM.append(temp_matrix)
+    return lnPWM
 
 #For a given sequence, returns the complementary sequence
 #Inputs:
@@ -172,10 +174,10 @@ def make_seq(fullseq,position,allele):
 #   seqlen (int): length of the sequence, so that we can loop over the PWM
 #Returns:
 #   pos_counts (list): list of counts at each position
-def get_matrix_counts(pwm,seqlen):
+def get_matrix_counts(pwm):
     pos_counts = []
-    for n in range(1,seqlen+1):
-        temp = [float(x) for x in pwm[n].values()]
+    for en in pwm:
+        temp = [float(x) for x in en.values()]
         pos_counts.append(sum(temp))
     return pos_counts
 
@@ -189,7 +191,7 @@ def get_matrix_scores(pwm,seq):
     seqval_list = []
     for n,b in enumerate(seq):
         try:
-            seqval_list.append(float(pwm[n+1][b]))
+            seqval_list.append(float(pwm[n][b]))
         except:
             if(b not in 'ACTG'):
                 print('Sequence contains a letter, {0}, that is not A/C/G/T at position {1}'.format(b,n))
@@ -202,7 +204,6 @@ def calculate_bindingP(hscore,bg_z_df,tf_name):
     # pdb.set_trace()
     try:
         bgZ_touse = bg_z_df.loc[bg_z_df['TF_name'] == tf_name]['BG Z score'].values[0]
-        
     except:
         print('Could not find background Z score for TF {0}'.format(tf_name))
         return -1
@@ -237,13 +238,13 @@ if __name__ == "__main__":
         bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
         for tf in tfs_to_check:
             curr_matrix = get_matrix_byTF(tf,infodicts_list)
-            curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
+            curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             rawscore_list = get_matrix_scores(curr_matrix,sequence)
-            pos_counts = get_matrix_counts(curr_matrix,curr_matrix['TF_len'])
+            pos_counts = get_matrix_counts(curr_matrix)
             tot_count = sum(pos_counts)
             # pdb.set_trace()
-            curr_scoredict = {'raw_score':sum(rawscore_list),'tf_len':curr_matrix['TF_len'],'counts_perpos':min(pos_counts)}
+            curr_scoredict = {'raw_score':sum(rawscore_list),'tf_len':len(curr_matrix),'counts_perpos':min(pos_counts)}
             curr_scoredict['fraction_score'] = sum([rawscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
             score_ln = get_matrix_scores(curr_lnfracPWM,sequence)
             curr_scoredict['H'] = np.sum(score_ln)
@@ -295,13 +296,13 @@ if __name__ == "__main__":
             except:
                 bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
             # pdb.set_trace()
-            curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
+            curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             refscore_list = get_matrix_scores(curr_matrix,curr_refseq)
             altscore_list = get_matrix_scores(curr_matrix,curr_altseq)
-            pos_counts = get_matrix_counts(curr_matrix,curr_matrix['TF_len'])
+            pos_counts = get_matrix_counts(curr_matrix)
             tot_count = sum(pos_counts)
-            curr_scoredict = {'ref_score':sum(refscore_list),'alt_score':sum(altscore_list),'tf_len':curr_matrix['TF_len'],'counts_perpos':min(pos_counts)}
+            curr_scoredict = {'ref_score':sum(refscore_list),'alt_score':sum(altscore_list),'tf_len':len(curr_matrix),'counts_perpos':min(pos_counts)}
             curr_scoredict['ref_fraction_score'] = sum([refscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
             curr_scoredict['alt_fraction_score'] = sum([altscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
 
@@ -319,7 +320,7 @@ if __name__ == "__main__":
         outfile = open(args.outname,'w')
         outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tHprime (ALT)\tP binding (REF)\tP binding (ALT)\n'.format(position,chromosome))
         for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['alt_fraction_score'],reverse=True):
-            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\n'.format(tf,scores['ref_fraction_score'],scores['alt_fraction_score'],scores['tf_len'],
+            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\n'.format(tf,scores['ref_fraction_score'],scores['alt_fraction_score'],scores['tf_len'],
                 scores['counts_perpos'],scores['H'],scores['Hprime'],scores['ref_bindingP'],scores['alt_bindingP']))
         outfile.close()
     
