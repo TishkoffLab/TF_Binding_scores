@@ -117,10 +117,11 @@ def get_fracPWM_from_matrix(pwm):
 #   lnPWM_dict (dict): PWM where each entry is the fracPWM entry, divided by the background base fraction, then taken the negative natural log of it
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
     lnPWM = []
+    bgfreqs_dict = {x:bgfreqs['frac_{0}'.format(x)].values[0] for x in 'ACTG'}
     for en in fracPWM:
         temp_matrix = {}
         for b in 'ACTG':
-            f = float(en[b])/bgfreqs['frac_{0}'.format(b)].values[0]
+            f = float(en[b])/bgfreqs_dict[b]
             temp_matrix[b] = -np.log(f)
         lnPWM.append(temp_matrix)
     return lnPWM
@@ -208,7 +209,12 @@ def calculate_bindingP(hscore,bg_z_df,tf_name):
         print('Could not find background Z score for TF {0}'.format(tf_name))
         return -1
     return math.exp(-hscore)/bgZ_touse
-    
+
+def get_rev_seq(seq):
+    new_seq = ''
+    for b in reversed(seq):
+        new_seq = ''.join([new_seq,b])
+    return new_seq
 
 if __name__ == "__main__":
     args = parser.parse_args()
