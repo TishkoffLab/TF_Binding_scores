@@ -74,26 +74,14 @@ def get_matrix_byTF(tfname,info_dicts):
     return matrix_aslist
 
 
-def get_fraclnPWM_from_matrixdict(matrix_dict):
-    lnPWM_dict = {}
-    for en in range(1,matrix_dict['TF_len']+1):
-        temp_matrix = {}
-        curr_totcount = sum([float(x) for x in matrix_dict[en].values()])
-        for b in 'ACTG':
-            f = float(matrix_dict[en][b])/curr_totcount
-            if(f == 0.0):
-                temp_matrix[b] = np.log(1)
-            else:
-                temp_matrix[b] = np.log(f)
-        lnPWM_dict[en] = temp_matrix
-    return lnPWM_dict
 
 def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
     lnPWM = []
+    bgfreqs_dict = {x:bgfreqs['frac_{0}'.format(x)].values[0] for x in 'ACTG'}
     for en in fracPWM:
         temp_matrix = {}
         for b in 'ACTG':
-            f = float(en[b])/bgfreqs['frac_{0}'.format(b)].values[0]
+            f = float(en[b])/bgfreqs_dict[b]
             temp_matrix[b] = -np.log(f)
         lnPWM.append(temp_matrix)
     return lnPWM
@@ -139,23 +127,32 @@ def calculate_bgH(seq,ln_pwm,bgfreqs):
     return np.sum(H)
 
 
-def get_random_bgseqs(slen,reps,fastaloc,chrmsizes):
+def get_random_bgseqs(slen,reps,fastaloc,chrmsizes,seqinfo_file=None):
     # x = pybedtools.BedTool()
 	chrms_touse = list(chrmsizes['chrom'])
 	bgseq_list = []
+	if(seqinfo_file is not None):
+		genseqs_df = read_csv(seqinfo_file,delimiter='\t')
+		for r,seq in genseqs_df.iterrows():
+			chrmfile = '{0}/chr{1}.fa'.format(fastaloc,seq['Chrm'])
+			curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(seq['Chrm'],seq['Start'],seq['End']),chrmfile)
+			bgseq_list.append([seq['Chrm'],seq['Start'],seq['End'],curr_seq.upper()])
 	while(len(bgseq_list) < int(reps)):
 		is_valid_seq = True
-		curr_chrm = random.randint(1,22)
-		curr_start = random.randint(1,chrmsizes.loc[chrmsizes['chrom'] == 'chr{0}'.format(curr_chrm)]['size'].values[0])
-		curr_end = curr_start + slen
-		chrmfile = '{0}/chr{1}.fa'.format(fastaloc,curr_chrm)
-		curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile)
-		for b in curr_seq:
-			if(b not in 'ACTG'):
-				is_valid_seq = False
-				continue
-		if(is_valid_seq):
-			bgseq_list.append([curr_chrm,curr_start,curr_end,curr_seq.upper()])
+		try:
+			curr_chrm = random.randint(1,22)
+			curr_start = random.randint(1,chrmsizes.loc[chrmsizes['chrom'] == 'chr{0}'.format(curr_chrm)]['size'].values[0])
+			curr_end = curr_start + slen
+			chrmfile = '{0}/chr{1}.fa'.format(fastaloc,curr_chrm)
+			curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile)
+			for b in curr_seq:
+				if(b not in 'ACTG'):
+					is_valid_seq = False
+					continue
+			if(is_valid_seq):
+				bgseq_list.append([curr_chrm,curr_start,curr_end,curr_seq.upper()])
+		except:
+			continue
 			# bgseq_list.append({'chrm':curr_chrm,'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
 	return bgseq_list
 
@@ -169,24 +166,31 @@ if __name__ == "__main__":
     outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
     bg_H_by_TF = {}
     for f in transfac_matrix_list:
-        curr_matrix = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
-        bgseqs = get_random_bgseqs(curr_matrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df)
-        outfile_currTF = open('bgseqs_info/{0}.{1}.random_bgseq.info'.format(args.outname,curr_matrix['Matrix_Name']),'w')
+        curr_JASPARmatrix = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
+        print('starting calculation for TF {0}'.format(curr_JASPARmatrix['Matrix_Name']))
+        curr_matrix = []
+        for i in range(1,curr_JASPARmatrix['TF_len']+1):
+            curr_matrix.append(curr_JASPARmatrix[i])
+        try:
+            bgseqs = get_random_bgseqs(curr_JASPARmatrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df,'bgseqs_info/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps))
+        except:
+            bgseqs = get_random_bgseqs(curr_JASPARmatrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df)
+        outfile_currTF = open('bgseqs_info_v1/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps),'w')
         outfile_currTF.write('Chrm\tStart\tEnd\n')
         bg_H_list = []
         for s in bgseqs:
             curr_seq = s[3]
             bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s[0])][['frac_A','frac_C','frac_G','frac_T']]
-            curr_fracPWM = get_fracPWM_from_matrixdict(curr_matrix)
+            curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             curr_H = np.sum(get_matrix_scores(curr_lnfracPWM,curr_seq))
             bg_H_list.append(curr_H)
             outfile_currTF.write('{0}\t{1}\t{2}\n'.format(s[0],s[1],s[2]))
-        curr_z = [pow(math.e,-x) for x in bg_H_list]
+        curr_z = np.sum([pow(math.e,-x) for x in bg_H_list])
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
-        outfile.write('{0}\t{1}\n'.format(curr_matrix['Matrix_Name'],sum(curr_z)))
+        outfile.write('{0}\t{1}\n'.format(curr_JASPARmatrix['Matrix_Name'],curr_z))
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
-    	outfile_currTF.close()
+        outfile_currTF.close()
     
     outfile.close()
 
