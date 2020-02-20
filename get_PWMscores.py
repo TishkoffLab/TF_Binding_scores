@@ -228,13 +228,32 @@ def get_seq_combos(seq,al,tf_len):
         curr_seq = seq[curr_ref_start_pos:curr_ref_end_pos]
         tempseq = ''
         for n,b in enumerate(curr_seq):
-            if((n+s[1]) == (tf_len-1)):
+            if((n+curr_ref_start_pos) == (tf_len-1)):
                 tempseq = ''.join([tempseq,al])
             else:
                 tempseq = ''.join([tempseq,b])
         seqs_list.append(tempseq)
         complseqs_list.append(get_complseq(tempseq))
     return seqs_list,complseqs_list
+
+def get_scoredict_entry(seq,pwm,bg_z_df,bgfreqs,tfname,tfpbind_cutoff=None):
+    fracPWM = get_fracPWM_from_matrix(pwm)
+    lnfracPWM = get_lnPWM_from_fracPWM(fracPWM,bgfreqs)
+    rawscore_list = get_matrix_scores(pwm,seq)
+    pos_counts = get_matrix_counts(pwm)
+    tot_count = sum(pos_counts)
+    score_ln = get_matrix_scores(lnfracPWM,seq)
+    curr_fracscore = sum([rawscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
+    curr_H = np.sum(score_ln)
+    curr_bindingp = calculate_bindingP(curr_H,bg_z_df,tfname)
+    if(tfpbind_cutoff is not None):
+        if(curr_bindingp >= float(tfpbind_cutoff)):
+            curr_scoredict = {'tf_name':tfname,'raw_score':sum(rawscore_list),'tf_len':len(pwm),'counts_perpos':min(pos_counts),
+                    'fraction_score':curr_fracscore,'H':curr_H,'bindingP':curr_bindingp}#,'orientation':'+','direction':'forward','motif_pos':p}
+    else:
+        curr_scoredict = {'tf_name':tfname,'raw_score':sum(rawscore_list),'tf_len':len(pwm),'counts_perpos':min(pos_counts),
+                    'fraction_score':curr_fracscore,'H':curr_H,'bindingP':curr_bindingp}
+    return curr_scoredict
 
 if __name__ == "__main__":
     args = parser.parse_args()
