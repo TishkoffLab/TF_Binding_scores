@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 import pybedtools
 import pdb
 import math
+import time
 
 parser = ArgumentParser()
 # parser.add_argument("-i", "--input_genes", dest="input_gene_file",
@@ -142,15 +143,16 @@ def get_random_bgseqs(slen,reps,fastaloc,chrmsizes,seqinfo_file=None):
 		try:
 			curr_chrm = random.randint(1,22)
 			curr_start = random.randint(1,chrmsizes.loc[chrmsizes['chrom'] == 'chr{0}'.format(curr_chrm)]['size'].values[0])
+			#TODO check for end being over the size of the chrm
 			curr_end = curr_start + slen
 			chrmfile = '{0}/chr{1}.fa'.format(fastaloc,curr_chrm)
-			curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile)
+			curr_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(curr_chrm,curr_start,curr_end),chrmfile).upper()
 			for b in curr_seq:
 				if(b not in 'ACTG'):
 					is_valid_seq = False
 					continue
 			if(is_valid_seq):
-				bgseq_list.append([curr_chrm,curr_start,curr_end,curr_seq.upper()])
+				bgseq_list.append([curr_chrm,curr_start,curr_end,curr_seq])
 		except:
 			continue
 			# bgseq_list.append({'chrm':curr_chrm,'start':curr_start,'end':curr_end,'seq':curr_seq.upper()})
@@ -165,32 +167,48 @@ if __name__ == "__main__":
     outfile = open(args.outname,'w')
     outfile.write('Average Background H score for each TF. Number of replicates: {0}\nTF_name\tBG Z score\n'.format(args.reps))
     bg_H_by_TF = {}
+
     for f in transfac_matrix_list:
+    	start = time.time()
         curr_JASPARmatrix = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
         print('starting calculation for TF {0}'.format(curr_JASPARmatrix['Matrix_Name']))
         curr_matrix = []
         for i in range(1,curr_JASPARmatrix['TF_len']+1):
             curr_matrix.append(curr_JASPARmatrix[i])
         try:
-            bgseqs = get_random_bgseqs(curr_JASPARmatrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df,'bgseqs_info/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps))
+            bgseqs = get_random_bgseqs(curr_JASPARmatrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df,'bgseqs_info_v1/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps))
         except:
             bgseqs = get_random_bgseqs(curr_JASPARmatrix['TF_len'],args.reps,args.ref_fasta_loc,chrmsizes_df)
-        outfile_currTF = open('bgseqs_info_v1/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps),'w')
+        outfile_currTF = open('bgseqs_info/{0}.{1}reps.random_bgseq.info'.format(curr_JASPARmatrix['Matrix_Name'],args.reps),'w')
         outfile_currTF.write('Chrm\tStart\tEnd\n')
         bg_H_list = []
+        curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
+        curr_lnfracPWM_bychrm = []
+        for n in range(1,23):
+            bgfreqs_n = bgfrac_df.loc[bgfrac_df['Chrm'] == str(n)][['frac_A','frac_C','frac_G','frac_T']]
+            curr_lnfracPWM_bychrm.append(get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs_n))
+        print('starting to calculate H scores for bg seqs, for TF {0}'.format(curr_JASPARmatrix['Matrix_Name']))
+        time_allseqs = []
         for s in bgseqs:
+            seqstart = time.time()
             curr_seq = s[3]
-            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s[0])][['frac_A','frac_C','frac_G','frac_T']]
-            curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
-            curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
+            curr_lnfracPWM = curr_lnfracPWM_bychrm[s[0]-1]
+            # bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(s[0])][['frac_A','frac_C','frac_G','frac_T']]
+            # curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
             curr_H = np.sum(get_matrix_scores(curr_lnfracPWM,curr_seq))
             bg_H_list.append(curr_H)
             outfile_currTF.write('{0}\t{1}\t{2}\n'.format(s[0],s[1],s[2]))
-        curr_z = np.sum([pow(math.e,-x) for x in bg_H_list])
+            seqend = time.time()
+            time_allseqs.append(seqend-seqstart)
+        print('finished H calculations for all bg seqs, average time taken = {0}'.format(np.average(time_allseqs)))
+        curr_z = np.sum([math.exp(-x) for x in bg_H_list])
+
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = sum(curr_z)
         outfile.write('{0}\t{1}\n'.format(curr_JASPARmatrix['Matrix_Name'],curr_z))
         # bg_H_by_TF[curr_matrix['Matrix_Name']] = bg_H_list
         outfile_currTF.close()
+        end = time.time()
+        print('Finished calculation of bg Z score for TF {0}; time taken = {1}'.format(curr_JASPARmatrix['Matrix_Name'],(end - start)))
     
     outfile.close()
 
