@@ -1,0 +1,3 @@
+Scores for Given Transcription Factors for sequence AAGACATTTGAAAATTATCTA, as a fraction of the total count 
+TF_Name	PWM Fraction Score	TF Length	TF Counts per position	H	P binding
+SPI1	6.821578445577184	20	133207.0	7.431754222815841	7.130468734640573e-07
