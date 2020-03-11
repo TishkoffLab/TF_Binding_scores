@@ -9,12 +9,11 @@ TF_Name, PWM Fraction Score (REF allele), PWM Fraction Score (ALT allele), TF Le
 
 ### Scripts:
 
-```
 
 get_PWMscore.py
 
 This script takes a particular SNP of interest, the list of TF names that corrisponds to that SNP, and calculates the scores from the PWMs of each TF.
-
+```
 Input flags:
 -i --input_genes
 				input file containing the list of TF gene names, one per row
@@ -32,20 +31,26 @@ Input flags:
 				reference fasta file (should just be for a single chromosome) to use for getting the reference sequence
 -b --bg_frac_file
 				file containing the background frequency of A/C/T/G, for each autosomal chromosome
+-z --bg_zscore_file
+				file containing the background Z scores for each TF, precalculated using a significant number of replicates
+-f --tf_cutoff
+				the cutoff for significant pbinding score. If this is provided, the script will check the snp against all tfs and orientations, then save only the results that are above the threshold.
 
-Note: bg_frac_file was made using a seperate script, with frequencies calculated from reference genome hg_19 and is in this repository as "ACTG_count.all_chrms.fractions.v2.txt".
+Note: bg_frac_file was made using a seperate script, with frequencies calculated from reference genome hg_19 and is in this repository as "ACTG_count.all_chrms.fractions.txt".
 
 ```
 get_PWMscore_genenames_multisnpfile.sh
 
 This script runs the python script on each of the SNPs that we have found through GWAS. It finds the TFs from the premade JASPAR bedfile that overlap with each particular SNP and makes a file containing that info, and then runs get_PWMscore.py with the requisite input flags.
 
+```
 Input flags:
 -o outname
 			Name to use for the output files (<outname>.TF_genes and <outname>.PWM_scores)
 
 -s snp_file
 			File containing the SNPs that will be analyzed. First line is the column names, followed by one line per SNP. Each line must have the SNP name (chr:pos format), the reference allele, and the alternative allele
-
+-p script_path
+			The path where the script is located. This folder must contain get_PWMscore.py, the folder containing 
 
 ```
