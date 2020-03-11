@@ -217,7 +217,9 @@ def get_matrix_scores(pwm,seq):
 #         print('Could not find background Z score for TF {0}'.format(tf_name))
 #         return -1
 #     return math.exp(-hscore)/bgZ_touse
-
+def get_revseq_foroutput(seq,pos,tf_len):
+    new_seq = ''.join(list(reversed(seq)))
+    return [new_seq,(tf_len-pos)]
 
 def get_seq_combos(seq,al,tf_len):
     seqs_list = []
@@ -384,6 +386,9 @@ if __name__ == "__main__":
                     curr_scoredict['orientation'] = '+'
                     curr_scoredict['direction'] = 'reverse'
                     curr_scoredict['allele'] = 'ref'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
                     sig_score_dicts.append(curr_scoredict)
             for s in curr_reverse_compl_ref_seqlist:
                 curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
@@ -391,6 +396,9 @@ if __name__ == "__main__":
                     curr_scoredict['orientation'] = '-'
                     curr_scoredict['direction'] = 'reverse'
                     curr_scoredict['allele'] = 'ref'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
                     sig_score_dicts.append(curr_scoredict)
 
             curr_forward_alt_seqlist,curr_forward_compl_alt_seqlist = get_seq_combos(ref_full_forward_seq,args.alt_al,len(curr_matrix))
@@ -415,6 +423,9 @@ if __name__ == "__main__":
                     curr_scoredict['orientation'] = '+'
                     curr_scoredict['direction'] = 'reverse'
                     curr_scoredict['allele'] = 'alt'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
                     sig_score_dicts.append(curr_scoredict)
             for s in curr_reverse_compl_alt_seqlist:
                 curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
@@ -422,6 +433,9 @@ if __name__ == "__main__":
                     curr_scoredict['orientation'] = '-'
                     curr_scoredict['direction'] = 'reverse'
                     curr_scoredict['allele'] = 'alt'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
                     sig_score_dicts.append(curr_scoredict)
             # pdb.set_trace()
             end = time.time()
