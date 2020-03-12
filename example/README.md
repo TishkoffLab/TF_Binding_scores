@@ -20,3 +20,13 @@ python get_PWMscores.py -s "AAGACATTTGAAAATTATCTA"\
 	 -z ${PWD}/backgroundZ_forTFs.1000reps.txt \
 	 -b ${PWD}/ACTG_count.all_chrms.fractions.txt
 ```
+
+Running all potential binding orientations/directions/positions for a specific SNP and specific set of TFs
+
+```
+./get_PWMscore_genenames_multisnpfile.binding_thresh.sh -s example/example_SNPs.binding_thresh.input\
+	 -o example/example_bindingthreshold.test.output\
+	 -p ${PWD} \
+	 -g ${PWD}/example 
+
+```

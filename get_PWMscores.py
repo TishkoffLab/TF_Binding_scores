@@ -347,7 +347,7 @@ if __name__ == "__main__":
                     infodicts_list_touse.append(i)
         else:
             infodicts_list_touse = infodicts_list
-        # print(args.tf_tocheck)
+        
         #Creating the final dictionary containing the values for each TF, with the Ref/Alt alleles
         sig_score_dicts = []
         for i in infodicts_list_touse:
@@ -439,7 +439,7 @@ if __name__ == "__main__":
                     sig_score_dicts.append(curr_scoredict)
             # pdb.set_trace()
             end = time.time()
-            print('time taken to calculate all sequences for tf {0} = {1}'.format(i['Matrix_Name'],(end-start)))
+            # print('time taken to calculate all sequences for tf {0} = {1}'.format(i['Matrix_Name'],(end-start)))
         if(len(sig_score_dicts) > 0):
             outfile = open(args.outname,'w')
             outfile.write('Scores for all Transcription Factors above bindingP score {0}\nTF_Name\tPWM Fraction Score\tTF Length\tTF Counts per position\tH\tP binding\tAllele\tOrientation\tDirection\tPosition in Motif\tBinding Sequence\n'.format(args.tfpbind_cutoff))
