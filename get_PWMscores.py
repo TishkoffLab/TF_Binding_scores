@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 import pybedtools
 import pdb
 import math
+import time
 
 parser = ArgumentParser()
 parser.add_argument("-i", "--input_genes", dest="input_gene_file",
@@ -34,6 +35,8 @@ parser.add_argument("-b", "--bg_frac_file", dest="bgfrac_file",
                     help="file containing the background frequency of A/C/T/G, for each autosomal chromosome.")
 parser.add_argument("-z", "--bg_zscore_file", dest="bgZscore_file",
                     help="file containing the background Z scores for each TF, precalculated using a significant number of replicates")
+parser.add_argument("-f", "--tf_cutoff", dest="tfpbind_cutoff",
+                    help="the cutoff for significant pbinding score. If this is provided, the script will check the snp against all tfs and orientations, then save only the results that are above the threshold.")
 
 #Reads in the JASPAR PWM file (transfac formatted)
 #   infile (str): the PWM file to read in
@@ -103,7 +106,7 @@ def get_fracPWM_from_matrix(pwm):
         curr_totcount = sum([float(x) for x in en.values()])
         for b in 'ACTG':
             if(f == 0.0):
-                temp_matrix[b] = 1/curr_totcount
+                temp_matrix[b] = 1/curr_totcount #TODO: Move check for 0 entry from reading in matrix to here
             else:
                 temp_matrix[b] = float(en[b])/curr_totcount
         fracPWM.append(temp_matrix)
@@ -122,7 +125,7 @@ def get_lnPWM_from_fracPWM(fracPWM,bgfreqs):
         temp_matrix = {}
         for b in 'ACTG':
             f = float(en[b])/bgfreqs_dict[b]
-            temp_matrix[b] = -np.log(f)
+            temp_matrix[b] = -np.log(f) #TODO speed this up; take sum of fracs and then log the whole thing
         lnPWM.append(temp_matrix)
     return lnPWM
 
@@ -201,20 +204,64 @@ def get_matrix_scores(pwm,seq):
                 continue
     return seqval_list
 
-def calculate_bindingP(hscore,bg_z_df,tf_name):
-    # pdb.set_trace()
-    try:
-        bgZ_touse = bg_z_df.loc[bg_z_df['TF_name'] == tf_name]['BG Z score'].values[0]
-    except:
-        print('Could not find background Z score for TF {0}'.format(tf_name))
-        return -1
-    return math.exp(-hscore)/bgZ_touse
+# def calculate_bindingP(hscore,bg_z_score,tf_name):
 
-def get_rev_seq(seq):
-    new_seq = ''
-    for b in reversed(seq):
-        new_seq = ''.join([new_seq,b])
-    return new_seq
+#     return math.exp(-hscore)/bgZ_score
+
+# def ge
+
+# def calculate_normed_bindingP(hscore,bg_z_df,tf_name):
+#     try:
+#         bgZ_touse = bg_z_df.loc[bg_z_df['TF_name'] == tf_name]['BG Z score'].values[0]
+#     except:
+#         print('Could not find background Z score for TF {0}'.format(tf_name))
+#         return -1
+#     return math.exp(-hscore)/bgZ_touse
+def get_revseq_foroutput(seq,pos,tf_len):
+    new_seq = ''.join(list(reversed(seq)))
+    return [new_seq,(tf_len-pos)]
+
+def get_seq_combos(seq,al,tf_len):
+    seqs_list = []
+    complseqs_list = []
+    for num in range(tf_len):
+        newseq = ''
+        curr_ref_start_pos = tf_len-num-1
+        curr_ref_end_pos = curr_ref_start_pos+tf_len
+        curr_seq = seq[curr_ref_start_pos:curr_ref_end_pos]
+        tempseq = ''
+        for n,b in enumerate(curr_seq):
+            if((n+curr_ref_start_pos) == (tf_len-1)):
+                tempseq = ''.join([tempseq,al])
+            else:
+                tempseq = ''.join([tempseq,b])
+        seqs_list.append([tempseq,num])
+        complseqs_list.append([get_complseq(tempseq),num])
+    return seqs_list,complseqs_list
+
+def get_scoredict_entry(seq,pwm,lnfracPWM,bgZ_score,bgfreqs,tfname,tfpbind_cutoff=None,seq_pos=None):
+    # pdb.set_trace()
+    curr_scoredict = None
+    try:
+        rawscore_list = get_matrix_scores(pwm,seq)
+        pos_counts = get_matrix_counts(pwm)
+        tot_count = sum(pos_counts)
+        score_ln = get_matrix_scores(lnfracPWM,seq)
+        curr_fracscore = sum([rawscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
+        curr_H = np.sum(score_ln)
+        curr_bindingp = math.exp(-curr_H)/bgZ_score #calculate_bindingP(curr_H,bgZ_score,tfname)
+        curr_normed_bindingp = math.exp(-curr_H)/(bgZ_score+math.exp(-curr_H)) 
+        if(tfpbind_cutoff is not None):
+            if(curr_bindingp >= float(tfpbind_cutoff)):
+                curr_scoredict = {'tf_name':tfname,'raw_score':sum(rawscore_list),'tf_len':len(pwm),'counts_perpos':min(pos_counts),
+                        'fraction_score':curr_fracscore,'H':curr_H,'bindingP':curr_bindingp,'bindingP_normed':curr_normed_bindingp,'sequence':seq,'motif_pos':seq_pos}
+        else:
+            curr_scoredict = {'tf_name':tfname,'raw_score':sum(rawscore_list),'tf_len':len(pwm),'counts_perpos':min(pos_counts),
+                        'fraction_score':curr_fracscore,'H':curr_H,'bindingP':curr_bindingp,'bindingP_normed':curr_normed_bindingp,'sequence':seq}
+    except:
+        print('Could not get score dict for given PWM from TF {0}! Check inputs.'.format(tfname))
+        return None
+    return curr_scoredict
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -232,36 +279,173 @@ if __name__ == "__main__":
 
         score_dict_bytf ={}
         tfs_to_check = []
-        try:
-            tf_list_file = open(args.tf_tocheck,'r')
-            for line in tf_list_file:
-                tfs_to_check.append(line.split('\n')[0])
-            tf_list_file.close()
-        except FileNotFoundError:
-            tfs_to_check.append(args.tf_tocheck)
+        if(args.tf_tocheck is not None):
+            try:
+                tf_list_file = open(args.tf_tocheck,'r')
+                for line in tf_list_file:
+                    tfs_to_check.append(line.split('\n')[0])
+                tf_list_file.close()
+            except:
+                tfs_to_check.append(args.tf_tocheck)
+        else:
+            for i in infodicts_list:
+                tfs_to_check.append(i['Matrix_Name'])
+        # except:
+        #     for i in infodicts_list:
+        #         tfs_to_check.append(i['Matrix_Name'])
         bg_z_df = read_csv(args.bgZscore_file,delimiter='\t',skiprows=1)
 
         bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
         for tf in tfs_to_check:
+            try:
+                bgZ_score = bg_z_df.loc[bg_z_df['TF_name'] == tf]['BG Z score'].values[0]
+            except:
+                print('Could not find background Z score for TF {0}'.format(tf))
+                break
             curr_matrix = get_matrix_byTF(tf,infodicts_list)
             curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
-            rawscore_list = get_matrix_scores(curr_matrix,sequence)
-            pos_counts = get_matrix_counts(curr_matrix)
-            tot_count = sum(pos_counts)
-            # pdb.set_trace()
-            curr_scoredict = {'raw_score':sum(rawscore_list),'tf_len':len(curr_matrix),'counts_perpos':min(pos_counts)}
-            curr_scoredict['fraction_score'] = sum([rawscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
-            score_ln = get_matrix_scores(curr_lnfracPWM,sequence)
-            curr_scoredict['H'] = np.sum(score_ln)
-            curr_scoredict['bindingP'] = calculate_bindingP(curr_scoredict['H'],bg_z_df,tf)
-            score_dict_bytf[tf] = curr_scoredict
+
+            curr_sd = get_scoredict_entry(sequence,curr_matrix,curr_lnfracPWM,bgZ_score,bgfreqs,tf)
+            if(curr_sd is not None):
+                score_dict_bytf[tf] = curr_sd
         #Writing the PWM scores to the output file
         outfile = open(args.outname,'w')
         outfile.write('Scores for Given Transcription Factors for sequence {0}, as a fraction of the total count \nTF_Name\tPWM Fraction Score\tTF Length\tTF Counts per position\tH\tP binding\n'.format(sequence))
-        for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['H'],reverse=True):
-            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(tf,scores['fraction_score'],scores['tf_len'],scores['counts_perpos'],scores['H'],scores['bindingP']))
+        for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['bindingP'],reverse=True):
+            outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\n'.format(tf,scores['fraction_score'],scores['tf_len'],scores['counts_perpos'],scores['H'],scores['bindingP'],scores['bindingP_normed']))
         outfile.close()
+    elif(args.tfpbind_cutoff is not None):
+        # pdb.set_trace()
+        tpbindcutoff = float(args.tfpbind_cutoff)
+        position = int(args.position.split(':')[1])
+        chromosome = int(args.position.split(':')[0])
+         #Read in the matrix files and make dict entries for each one
+        transfac_matrix_list = os.listdir(args.matrix_loc)
+        infodicts_list = []
+        for f in transfac_matrix_list:
+            curr_infodict = read_JASPAR_transfac_pfms('{0}/{1}'.format(args.matrix_loc,f))
+            infodicts_list.append(curr_infodict)
+        bg_z_df = read_csv(args.bgZscore_file,delimiter='\t',skiprows=1)
+        try:
+            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == str(chromosome)][['frac_A','frac_C','frac_G','frac_T']]
+        except:
+            bgfreqs = bgfrac_df.loc[bgfrac_df['Chrm'] == 'Total'][['frac_A','frac_C','frac_G','frac_T']]
+
+        infodicts_list_touse = []
+        if(args.tf_tocheck is not None):
+            tfs_to_check = []
+            try:
+                tf_list_file = open(args.tf_tocheck,'r')
+                for line in tf_list_file:
+                    tfs_to_check.append(line.split('\n')[0])
+                tf_list_file.close()
+            except:
+                tfs_to_check.append(args.tf_tocheck)
+            for i in infodicts_list:
+                if(i['Matrix_Name'] in tfs_to_check):
+                    infodicts_list_touse.append(i)
+        else:
+            infodicts_list_touse = infodicts_list
+        
+        #Creating the final dictionary containing the values for each TF, with the Ref/Alt alleles
+        sig_score_dicts = []
+        for i in infodicts_list_touse:
+            start = time.time()
+            curr_matrix = []
+            for n in range(1,i['TF_len']+1):
+                curr_matrix.append(i[n])
+            fracPWM = get_fracPWM_from_matrix(curr_matrix)
+            lnfracPWM = get_lnPWM_from_fracPWM(fracPWM,bgfreqs)
+            ref_full_forward_seq = pybedtools.BedTool.seq('chr{0}:{1}-{2}'.format(chromosome,(position-len(curr_matrix)+1),(position+len(curr_matrix)-1)),args.ref_fasta_file).upper()
+            ref_full_reverse_seq = ''.join(list(reversed(ref_full_forward_seq)))
+            curr_forward_ref_seqlist,curr_forward_compl_ref_seqlist = get_seq_combos(ref_full_forward_seq,args.ref_al,len(curr_matrix))
+            curr_reverse_ref_seqlist,curr_reverse_compl_ref_seqlist = get_seq_combos(ref_full_reverse_seq,args.ref_al,len(curr_matrix))
+            try:
+                bgZ_score = bg_z_df.loc[bg_z_df['TF_name'] == i['Matrix_Name']]['BG Z score'].values[0]
+            except:
+                print('Could not find background Z score for TF {0}'.format(tf_name))
+                break
+            for s in curr_forward_ref_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '+'
+                    curr_scoredict['direction'] = 'forward'
+                    curr_scoredict['allele'] = 'ref'
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_forward_compl_ref_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '-'
+                    curr_scoredict['direction'] = 'forward'
+                    curr_scoredict['allele'] = 'ref'
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_reverse_ref_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '+'
+                    curr_scoredict['direction'] = 'reverse'
+                    curr_scoredict['allele'] = 'ref'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_reverse_compl_ref_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '-'
+                    curr_scoredict['direction'] = 'reverse'
+                    curr_scoredict['allele'] = 'ref'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
+                    sig_score_dicts.append(curr_scoredict)
+
+            curr_forward_alt_seqlist,curr_forward_compl_alt_seqlist = get_seq_combos(ref_full_forward_seq,args.alt_al,len(curr_matrix))
+            curr_reverse_alt_seqlist,curr_reverse_compl_alt_seqlist = get_seq_combos(ref_full_reverse_seq,args.alt_al,len(curr_matrix))
+            for s in curr_forward_alt_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '+'
+                    curr_scoredict['direction'] = 'forward'
+                    curr_scoredict['allele'] = 'alt'
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_forward_compl_alt_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '-'
+                    curr_scoredict['direction'] = 'forward'
+                    curr_scoredict['allele'] = 'alt'
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_reverse_alt_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '+'
+                    curr_scoredict['direction'] = 'reverse'
+                    curr_scoredict['allele'] = 'alt'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
+                    sig_score_dicts.append(curr_scoredict)
+            for s in curr_reverse_compl_alt_seqlist:
+                curr_scoredict = get_scoredict_entry(s[0],curr_matrix,lnfracPWM,bgZ_score,bgfreqs,i['Matrix_Name'],tpbindcutoff,s[1])
+                if(curr_scoredict is not None):
+                    curr_scoredict['orientation'] = '-'
+                    curr_scoredict['direction'] = 'reverse'
+                    curr_scoredict['allele'] = 'alt'
+                    new_seq,new_pos = get_revseq_foroutput(curr_scoredict['sequence'],curr_scoredict['motif_pos'],curr_scoredict['tf_len']-1)
+                    curr_scoredict['sequence'] = new_seq
+                    curr_scoredict['motif_pos'] = new_pos 
+                    sig_score_dicts.append(curr_scoredict)
+            # pdb.set_trace()
+            end = time.time()
+            # print('time taken to calculate all sequences for tf {0} = {1}'.format(i['Matrix_Name'],(end-start)))
+        if(len(sig_score_dicts) > 0):
+            outfile = open(args.outname,'w')
+            outfile.write('Scores for all Transcription Factors above bindingP score {0}\nTF_Name\tPWM Fraction Score\tTF Length\tTF Counts per position\tH\tP binding\tAllele\tOrientation\tDirection\tPosition in Motif\tBinding Sequence\n'.format(args.tfpbind_cutoff))
+            for scores in sorted(sig_score_dicts, key=lambda k: k['bindingP'],reverse=True):
+                outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\n'.format(scores['tf_name'],scores['fraction_score'],scores['tf_len'],scores['counts_perpos'],scores['H'],scores['bindingP'],scores['allele'],scores['orientation'],scores['direction'],scores['motif_pos'],scores['sequence']))
+            outfile.close()
     else:
         position = int(args.position.split(':')[1])
         chromosome = int(args.position.split(':')[0])
@@ -304,30 +488,25 @@ if __name__ == "__main__":
             # pdb.set_trace()
             curr_fracPWM = get_fracPWM_from_matrix(curr_matrix)
             curr_lnfracPWM = get_lnPWM_from_fracPWM(curr_fracPWM,bgfreqs)
-            refscore_list = get_matrix_scores(curr_matrix,curr_refseq)
-            altscore_list = get_matrix_scores(curr_matrix,curr_altseq)
-            pos_counts = get_matrix_counts(curr_matrix)
-            tot_count = sum(pos_counts)
-            curr_scoredict = {'ref_score':sum(refscore_list),'alt_score':sum(altscore_list),'tf_len':len(curr_matrix),'counts_perpos':min(pos_counts)}
-            curr_scoredict['ref_fraction_score'] = sum([refscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
-            curr_scoredict['alt_fraction_score'] = sum([altscore_list[x]/pos_counts[x] for x in range(len(pos_counts))])
 
-            refscore_ln = get_matrix_scores(curr_lnfracPWM,curr_refseq)
-            altscore_ln = get_matrix_scores(curr_lnfracPWM,curr_altseq)
-            curr_scoredict['H'] = np.sum(refscore_ln)
-            curr_scoredict['Hprime'] = np.sum(altscore_ln)
+            try:
+                bgZ_score = bg_z_df.loc[bg_z_df['TF_name'] == g['tf_name']]['BG Z score'].values[0]
+            except:
+                print('Could not find background Z score for TF {0}'.format(tf_name))
 
-            curr_scoredict['ref_bindingP'] = calculate_bindingP(curr_scoredict['H'],bg_z_df,g['tf_name'])
-            curr_scoredict['alt_bindingP'] = calculate_bindingP(curr_scoredict['Hprime'],bg_z_df,g['tf_name'])
-
+            curr_scoredict_ref = get_scoredict_entry(curr_refseq,curr_matrix,curr_lnfracPWM,bgZ_score,bgfreqs,g['tf_name'])
+            curr_scoredict_alt = get_scoredict_entry(curr_altseq,curr_matrix,curr_lnfracPWM,bgZ_score,bgfreqs,g['tf_name'])
+            curr_scoredict = {'ref_fraction_score':curr_scoredict_ref['fraction_score'],'alt_fraction_score':curr_scoredict_alt['fraction_score'],
+            'tf_len':curr_scoredict_ref['tf_len'],'counts_perpos':curr_scoredict_ref['counts_perpos'],'H (REF)':curr_scoredict_ref['H'],'H (ALT)':curr_scoredict_alt['H'],
+            'BindingP (REF)':curr_scoredict_ref['bindingP'],'BindingP (ALT)':curr_scoredict_alt['bindingP']}
             score_dict_bytf[g['tf_name']] = curr_scoredict
 
         #Writing the PWM scores to the output file
         outfile = open(args.outname,'w')
-        outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tHprime (ALT)\tP binding (REF)\tP binding (ALT)\n'.format(position,chromosome))
+        outfile.write('Scores for Transcription Factors Containing SNP at {0} on chromosome {1}, as a fraction of the total count \nTF_Name\tPWM Fraction Score (REF allele)\tPWM Fraction Score (ALT allele)\tTF Length\tTF Counts per position\tH (REF)\tH (ALT)\tBinding P (REF)\tBinding P (ALT)\n'.format(position,chromosome))
         for tf,scores in sorted(score_dict_bytf.items(), key=lambda k_v: k_v[1]['alt_fraction_score'],reverse=True):
             outfile.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\n'.format(tf,scores['ref_fraction_score'],scores['alt_fraction_score'],scores['tf_len'],
-                scores['counts_perpos'],scores['H'],scores['Hprime'],scores['ref_bindingP'],scores['alt_bindingP']))
+                scores['counts_perpos'],scores['H (REF)'],scores['H (ALT)'],scores['BindingP (REF)'],scores['BindingP (ALT)']))
         outfile.close()
     
 
